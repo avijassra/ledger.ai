@@ -4,10 +4,10 @@ import time
 
 # --- CONFIGURATION ---
 # Replace 'your-username' with your actual GitHub username (e.g., 'ajassra')
-GITHUB_USERNAME = "avijassra" 
-REPO_NAME = "ledger.ai"
+GITHUB_USERNAME = "" 
+REPO_NAME = ""
 # Generate this at https://github.com/settings/tokens (needs 'repo' scope)
-GITHUB_TOKEN = "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"
+GITHUB_TOKEN = ""
 
 CSV_FILE = "lumen_tasks.csv"
 REPO_FULL_NAME = f"{GITHUB_USERNAME}/{REPO_NAME}"
