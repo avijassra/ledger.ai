@@ -1,0 +1,11 @@
+title,description,label
+"[Infra] Containerize .NET API","Create a Dockerfile for the ASP.NET Core Web API and add it to a docker-compose.yml file. Verify it builds and runs.","infrastructure"
+"[Infra] Containerize Python FastAPI","Create a Dockerfile for the Python FastAPI service. Add it to docker-compose.yml. Ensure the containers can 'ping' each other.","infrastructure"
+"[AI] Mock Data & FastAPI Skeleton","Create a 'data/' folder with a 50-row sample CSV of expenses. Setup a FastAPI POST route that returns a static JSON category.","ai"
+"[AI] Implement Scikit-Learn Vectorizer","Write the Python logic to convert expense descriptions into numbers using CountVectorizer. Test with a simple script.","ai"
+"[AI] Train Naive Bayes Classifier","Train a Naive Bayes model on the CSV data and save the model as a .pkl file. Update FastAPI to use this file.","ai"
+"[Backend] Create AI Proxy Service","Implement a C# Service class that uses IHttpClientFactory to call the Python container and deserialize the response.","backend"
+"[Frontend] Ionic Shell & Navigation","Generate the Ionic Angular project. Set up a simple 'Home' and 'Add Expense' tab structure.","frontend"
+"[Frontend] Expense Input Component","Build the UI form for entering an expense description and amount. Add a 'Suggesting...' loading state for the category.","frontend"
+"[Integration] Connect Form to AI","Link the Angular form to the .NET API. Ensure that as the user types, the predicted category updates in the UI.","frontend"
+"[Mobile] Capacitor iOS/Android Setup","Add @capacitor/core and @capacitor/cli. Generate the Android/iOS folders and run the app on a physical device or emulator.","mobile"
