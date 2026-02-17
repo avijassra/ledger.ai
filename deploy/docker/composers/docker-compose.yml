@@ -1,0 +1,39 @@
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: ledger_db
+    ports:
+      - "5432:5432"
+
+  ai-service:
+    build:
+      context: ../../../              
+      dockerfile: deploy/docker/files/ai.dockerfile # Exact path from ledger-ai/
+    ports:
+      - "8000:8000"
+
+  backend-api:
+    build:
+      context: ../../../              
+      dockerfile: deploy/docker/files/backend.dockerfile # Exact path from ledger-ai/
+    ports:
+      - "5100:8080"
+    depends_on:
+      - db
+      - ai-service
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Host=db;Database=ledger_db;Username=user;Password=password
+      - AiService__BaseUrl=http://ai-service:8000
+
+  client-app:
+    build:
+      context: ../../../              
+      dockerfile: deploy/docker/files/client.dockerfile # Exact path from ledger-ai/
+    ports:
+      - "4200:80"
+    depends_on:
+      - backend-api

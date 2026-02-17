@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../domain/LedgerAI.Domain.csproj" />
+    <ProjectReference Include="..\application\LedgerAI.Application.csproj" />
+    <ProjectReference Include="..\infrastructure\LedgerAI.Infrastructure.csproj" />
+    <ProjectReference Include="..\shared\LedgerAI.Shared.csproj" />
+  </ItemGroup>
+
+</Project>
