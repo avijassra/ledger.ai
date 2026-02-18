@@ -10,10 +10,12 @@ services:
 
   ai-service:
     build:
-      context: ../../../              
+      context: ../../../
       dockerfile: deploy/docker/files/ai.dockerfile # Exact path from ledger-ai/
     ports:
       - "8000:8000"
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
 
   backend-api:
     build:

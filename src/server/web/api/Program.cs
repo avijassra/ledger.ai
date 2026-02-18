@@ -14,6 +14,9 @@ builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
+var logger = app.Services.GetRequiredService<ILogger<Program>>();
+logger.LogInformation("LedgerAI Web API starting up");
+
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
@@ -30,6 +33,14 @@ else
 }
 
 app.UseAuthorization();
+
+app.Use(async (context, next) =>
+{
+    var requestLogger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+    requestLogger.LogInformation("Request: {Method} {Path}", context.Request.Method, context.Request.Path);
+    await next();
+    requestLogger.LogInformation("Response: {Method} {Path} -> {StatusCode}", context.Request.Method, context.Request.Path, context.Response.StatusCode);
+});
 
 app.MapControllers();
 

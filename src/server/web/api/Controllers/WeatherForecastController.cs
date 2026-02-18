@@ -18,12 +18,21 @@ public class WeatherForecastController : ControllerBase
     [HttpGet(Name = "GetWeatherForecast")]
     public async Task<IActionResult> Get()
     {
+        _logger.LogInformation("GET /weatherforecast requested");
+
         var client = _httpClientFactory.CreateClient("AiService");
 
+        _logger.LogInformation("Calling AI service at /test/weather");
         var response = await client.GetAsync("/test/weather");
-        response.EnsureSuccessStatusCode();
+
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogError("AI service returned error: {StatusCode}", response.StatusCode);
+            return StatusCode((int)response.StatusCode, "AI service error");
+        }
 
         var forecasts = await response.Content.ReadFromJsonAsync<List<WeatherForecast>>();
+        _logger.LogInformation("Weather forecast retrieved: {Count} items", forecasts?.Count ?? 0);
         return Ok(forecasts);
     }
 }
