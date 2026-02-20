@@ -1,11 +1,11 @@
 import json
 import logging
-import os
 import time
 
 from fastapi import APIRouter, UploadFile, File, HTTPException
-from google import genai
 from pydantic import BaseModel
+
+from providers.factory import get_ai_provider
 
 logger = logging.getLogger("ledgerai.bank_statement")
 
@@ -71,27 +71,20 @@ async def analyze_statement(file: UploadFile = File(...)):
     pdf_bytes = await file.read()
     logger.info("Read PDF file: size=%d bytes", len(pdf_bytes))
 
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        logger.error("GEMINI_API_KEY environment variable is not configured")
-        raise HTTPException(status_code=500, detail="GEMINI_API_KEY not configured")
+    try:
+        provider = get_ai_provider()
+    except (EnvironmentError, ValueError) as e:
+        logger.error("AI provider configuration error: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
 
-    client = genai.Client(api_key=api_key)
-
-    logger.info("Sending PDF to Gemini API for analysis")
+    logger.info("Sending PDF to %s for analysis", type(provider).__name__)
     start = time.time()
-    response = client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=[
-            genai.types.Part.from_bytes(data=pdf_bytes, mime_type="application/pdf"),
-            PROMPT,
-        ],
-    )
+    raw = provider.analyze_bank_statement(pdf_bytes, PROMPT)
     duration = time.time() - start
-    logger.info("Gemini API response received in %.2fs", duration)
+    logger.info("%s response received in %.2fs", type(provider).__name__, duration)
 
     try:
-        raw = response.text.strip()
+        raw = raw.strip()
         if raw.startswith("```"):
             logger.info("Stripping markdown code fences from AI response")
             raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
