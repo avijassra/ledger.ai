@@ -5,54 +5,58 @@
   </header>
 
   @if (!result()) {
-    <div
-      class="upload-zone"
-      [class.dragging]="dragging()"
-      (dragover)="onDragOver($event)"
-      (dragleave)="onDragLeave($event)"
-      (drop)="onDrop($event)"
-    >
-      @if (!selectedFile()) {
-        <div class="upload-prompt">
-          <svg xmlns="http://www.w3.org/2000/svg" height="48" viewBox="0 -960 960 960" width="48" fill="currentColor">
-            <path d="M440-367v-213l-76 76-43-43 149-149 149 149-43 43-76-76v213h-60ZM220-160q-24 0-42-18t-18-42v-143h60v143h520v-143h60v143q0 24-18 42t-42 18H220ZM160-554v-246q0-24 18-42t42-18h280l200 200v106h-60v-76H480v-154H220v230h-60Z"/>
-          </svg>
-          <p>Drag and drop your bank statement PDF here</p>
-          <span class="or">or</span>
-          <label class="file-btn">
-            Browse Files
-            <input type="file" accept=".pdf" (change)="onFileSelected($event)" hidden />
-          </label>
-        </div>
-      } @else {
-        <div class="file-selected">
-          <svg xmlns="http://www.w3.org/2000/svg" height="32" viewBox="0 -960 960 960" width="32" fill="currentColor">
-            <path d="M319-250h322v-60H319v60Zm0-170h322v-60H319v60ZM220-80q-24 0-42-18t-18-42v-680q0-24 18-42t42-18h361l219 219v521q0 24-18 42t-42 18H220Zm331-554v-186H220v680h520v-494H551ZM220-820v186-186 680-680Z"/>
-          </svg>
-          <span class="file-name">{{ selectedFile()!.name }}</span>
-          <button class="remove-btn" (click)="reset()">Remove</button>
-        </div>
+    <div class="upload-section">
+      <div
+        class="upload-zone"
+        [class.dragging]="dragging()"
+        (dragover)="onDragOver($event)"
+        (dragleave)="onDragLeave($event)"
+        (drop)="onDrop($event)"
+      >
+        @if (!selectedFile()) {
+          <div class="upload-prompt">
+            <svg xmlns="http://www.w3.org/2000/svg" height="48" viewBox="0 -960 960 960" width="48" fill="currentColor">
+              <path d="M440-367v-213l-76 76-43-43 149-149 149 149-43 43-76-76v213h-60ZM220-160q-24 0-42-18t-18-42v-143h60v143h520v-143h60v143q0 24-18 42t-42 18H220ZM160-554v-246q0-24 18-42t42-18h280l200 200v106h-60v-76H480v-154H220v230h-60Z"/>
+            </svg>
+            <p>Drag and drop your bank statement PDF here</p>
+            <span class="or">or</span>
+            <label class="file-btn">
+              Browse Files
+              <input type="file" accept=".pdf" (change)="onFileSelected($event)" hidden />
+            </label>
+          </div>
+        } @else {
+          <div class="file-selected">
+            <svg xmlns="http://www.w3.org/2000/svg" height="32" viewBox="0 -960 960 960" width="32" fill="currentColor">
+              <path d="M319-250h322v-60H319v60Zm0-170h322v-60H319v60ZM220-80q-24 0-42-18t-18-42v-680q0-24 18-42t42-18h361l219 219v521q0 24-18 42t-42 18H220Zm331-554v-186H220v680h520v-494H551ZM220-820v186-186 680-680Z"/>
+            </svg>
+            <span class="file-name">{{ selectedFile()!.name }}</span>
+            <button class="remove-btn" (click)="reset()">Remove</button>
+          </div>
+        }
+      </div>
+
+      @if (error()) {
+        <p class="error">{{ error() }}</p>
       }
+
+      <button
+        class="analyze-btn"
+        [disabled]="!selectedFile() || loading()"
+        (click)="analyze()"
+      >
+        @if (loading()) {
+          <span class="spinner"></span>
+          Analyzing...
+        } @else {
+          Analyze Statement
+        }
+      </button>
     </div>
-
-    @if (error()) {
-      <p class="error">{{ error() }}</p>
-    }
-
-    <button
-      class="analyze-btn"
-      [disabled]="!selectedFile() || loading()"
-      (click)="analyze()"
-    >
-      @if (loading()) {
-        <span class="spinner"></span>
-        Analyzing...
-      } @else {
-        Analyze Statement
-      }
-    </button>
   } @else {
     <div class="results">
+
+      <!-- Summary cards -->
       <div class="summary">
         <div class="summary-card income">
           <span class="summary-label">Total Income</span>
@@ -66,26 +70,93 @@
           <span class="summary-label">Net</span>
           <span class="summary-value">{{ result()!.total_income - result()!.total_expenses | currency }}</span>
         </div>
+        <div class="summary-card tax">
+          <span class="summary-label">Tax Deductible</span>
+          <span class="summary-value">{{ result()!.total_tax_deductible | currency }}</span>
+        </div>
       </div>
 
-      <div class="categories">
-        @for (category of result()!.categories; track category.name) {
-          <div class="category-card" [class.income]="category.type === 'income'" [class.expense]="category.type === 'expense'">
-            <div class="category-header">
-              <h3>{{ category.name }}</h3>
-              <span class="category-total" [class.income]="category.type === 'income'" [class.expense]="category.type === 'expense'">
-                {{ category.total | currency }}
-              </span>
-            </div>
-            <div class="transactions">
-              @for (tx of category.transactions; track $index) {
-                <div class="transaction">
-                  <span class="tx-date">{{ tx.date }}</span>
-                  <span class="tx-desc">{{ tx.description }}</span>
-                  <span class="tx-amount">{{ tx.amount | currency }}</span>
-                </div>
+      <!-- Category Analysis Table -->
+      <div class="section">
+        <div class="section-header">
+          <h2 class="section-title">Category Analysis</h2>
+          <button class="export-btn" (click)="exportToCsv()">
+            <svg xmlns="http://www.w3.org/2000/svg" height="16" viewBox="0 -960 960 960" width="16" fill="currentColor">
+              <path d="M480-313 287-506l43-43 120 120v-371h60v371l120-120 43 43-193 193ZM220-160q-24 0-42-18t-18-42v-143h60v143h520v-143h60v143q0 24-18 42t-42 18H220Z"/>
+            </svg>
+            Export CSV
+          </button>
+        </div>
+        <div class="table-wrap">
+          <table class="analysis-table">
+            <thead>
+              <tr>
+                <th class="th-sticky th-name">Category</th>
+                <th class="th-type">Type</th>
+                @for (month of allMonths(); track month) {
+                  <th class="th-num">{{ formatMonth(month) }}</th>
+                }
+                <th class="th-num th-total">Yearly Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (cat of result()!.categories; track cat.name) {
+                <tr>
+                  <td class="td-sticky td-name">{{ cat.name }}</td>
+                  <td class="td-type">
+                    <span class="badge" [class.badge-income]="cat.type === 'income'" [class.badge-expense]="cat.type === 'expense'">
+                      {{ cat.type }}
+                    </span>
+                  </td>
+                  @for (month of allMonths(); track month) {
+                    @if (getMonthlyAmount(cat, month); as amt) {
+                      <td class="td-num">{{ amt | currency }}</td>
+                    } @else {
+                      <td class="td-num td-empty">—</td>
+                    }
+                  }
+                  <td class="td-num td-total" [class.td-income]="cat.type === 'income'" [class.td-expense]="cat.type === 'expense'">
+                    {{ cat.yearly_total | currency }}
+                  </td>
+                </tr>
               }
-            </div>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Tax Deductible Expenses Table -->
+      <div class="section">
+        <h2 class="section-title">Tax Deductible Expenses</h2>
+        @if (result()!.tax_deductible_expenses.length === 0) {
+          <p class="empty-state">No tax-deductible expenses identified in this statement.</p>
+        } @else {
+          <div class="table-wrap">
+            <table class="analysis-table tax-table">
+              <thead>
+                <tr>
+                  <th class="th-name">Category</th>
+                  <th class="th-num">Claimable Amount</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (item of result()!.tax_deductible_expenses; track item.name) {
+                  <tr>
+                    <td class="td-name">{{ item.name }}</td>
+                    <td class="td-num td-income">{{ item.claimable_amount | currency }}</td>
+                    <td class="td-notes">{{ item.notes }}</td>
+                  </tr>
+                }
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td><strong>Total Claimable</strong></td>
+                  <td class="td-num td-income"><strong>{{ result()!.total_tax_deductible | currency }}</strong></td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            </table>
           </div>
         }
       </div>
