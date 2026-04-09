@@ -1,6 +1,7 @@
 import { Component, computed, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { CurrencyPipe } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 
 interface Transaction {
   date: string;
@@ -37,16 +38,23 @@ interface AnalysisResult {
 
 @Component({
   selector: 'app-root',
-  imports: [CurrencyPipe],
+  imports: [CurrencyPipe, FormsModule],
   templateUrl: './app.html',
   styleUrl: './app.scss'
 })
 export class App {
-  protected readonly selectedFile = signal<File | null>(null);
+  protected readonly selectedFiles = signal<File[]>([]);
   protected readonly loading = signal(false);
   protected readonly result = signal<AnalysisResult | null>(null);
   protected readonly error = signal<string | null>(null);
   protected readonly dragging = signal(false);
+
+  // Custom categories added by user
+  protected readonly customCategories = signal<TaxDeductibleCategory[]>([]);
+  protected readonly showAddCategory = signal(false);
+  protected newCategoryName = '';
+  protected newCategoryAmount: number | null = null;
+  protected newCategoryNotes = '';
 
   protected readonly allMonths = computed(() => {
     const result = this.result();
@@ -56,6 +64,16 @@ export class App {
       for (const m of cat.monthly_totals) months.add(m.month);
     }
     return Array.from(months).sort();
+  });
+
+  protected readonly allTaxCategories = computed(() => {
+    const result = this.result();
+    if (!result) return this.customCategories();
+    return [...result.tax_deductible_expenses, ...this.customCategories()];
+  });
+
+  protected readonly totalTaxDeductible = computed(() => {
+    return this.allTaxCategories().reduce((sum, c) => sum + c.claimable_amount, 0);
   });
 
   constructor(private http: HttpClient) {}
@@ -72,7 +90,8 @@ export class App {
   onFileSelected(event: Event) {
     const input = event.target as HTMLInputElement;
     if (input.files?.length) {
-      this.setFile(input.files[0]);
+      this.addFiles(Array.from(input.files));
+      input.value = '';
     }
   }
 
@@ -89,32 +108,59 @@ export class App {
   onDrop(event: DragEvent) {
     event.preventDefault();
     this.dragging.set(false);
-    const file = event.dataTransfer?.files[0];
-    if (file) {
-      this.setFile(file);
+    if (event.dataTransfer?.files.length) {
+      this.addFiles(Array.from(event.dataTransfer.files));
     }
   }
 
-  private setFile(file: File) {
-    if (file.type !== 'application/pdf') {
-      this.error.set('Please select a PDF file');
-      return;
+  private addFiles(incoming: File[]) {
+    const valid: File[] = [];
+    const errors: string[] = [];
+
+    for (const file of incoming) {
+      const isCsv = file.type === 'text/csv' || file.type === 'application/csv' || file.name.toLowerCase().endsWith('.csv');
+      const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+      if (!isCsv && !isPdf) {
+        errors.push(`"${file.name}" is not a CSV or PDF file`);
+      } else {
+        valid.push(file);
+      }
     }
-    this.selectedFile.set(file);
-    this.error.set(null);
-    this.result.set(null);
+
+    if (errors.length) {
+      this.error.set(errors.join('; '));
+    } else {
+      this.error.set(null);
+    }
+
+    if (valid.length) {
+      const existing = this.selectedFiles();
+      const names = new Set(existing.map(f => f.name));
+      const deduped = valid.filter(f => !names.has(f.name));
+      this.selectedFiles.set([...existing, ...deduped]);
+      this.result.set(null);
+    }
+  }
+
+  removeFile(index: number) {
+    const files = [...this.selectedFiles()];
+    files.splice(index, 1);
+    this.selectedFiles.set(files);
   }
 
   analyze() {
-    const file = this.selectedFile();
-    if (!file) return;
+    const files = this.selectedFiles();
+    if (!files.length) return;
 
     const formData = new FormData();
-    formData.append('file', file);
+    for (const file of files) {
+      formData.append('files', file);
+    }
 
     this.loading.set(true);
     this.error.set(null);
     this.result.set(null);
+    this.customCategories.set([]);
 
     this.http.post<AnalysisResult>('/BankStatement/analyze', formData).subscribe({
       next: (data) => {
@@ -125,6 +171,30 @@ export class App {
         this.error.set(err.error?.detail || 'Failed to analyze statement. Please try again.');
         this.loading.set(false);
       }
+    });
+  }
+
+  addCategory() {
+    const name = this.newCategoryName.trim();
+    const amount = this.newCategoryAmount ?? 0;
+    if (!name || amount <= 0) return;
+
+    this.customCategories.update(cats => [
+      ...cats,
+      { name, claimable_amount: amount, notes: this.newCategoryNotes.trim() || 'Manually added' }
+    ]);
+
+    this.newCategoryName = '';
+    this.newCategoryAmount = null;
+    this.newCategoryNotes = '';
+    this.showAddCategory.set(false);
+  }
+
+  removeCustomCategory(index: number) {
+    this.customCategories.update(cats => {
+      const copy = [...cats];
+      copy.splice(index, 1);
+      return copy;
     });
   }
 
@@ -141,7 +211,7 @@ export class App {
     rows.push(`Total Income,${result.total_income.toFixed(2)}`);
     rows.push(`Total Expenses,${result.total_expenses.toFixed(2)}`);
     rows.push(`Net,${(result.total_income - result.total_expenses).toFixed(2)}`);
-    rows.push(`Total Tax Deductible,${result.total_tax_deductible.toFixed(2)}`);
+    rows.push(`Total Tax Deductible,${this.totalTaxDeductible().toFixed(2)}`);
     rows.push('');
 
     // Section 2: Monthly category breakdown
@@ -167,27 +237,28 @@ export class App {
     }
     rows.push('');
 
-    // Section 4: Tax deductible expenses
+    // Section 4: Tax deductible expenses (AI + custom)
     rows.push('TAX DEDUCTIBLE EXPENSES');
     rows.push([q('Category'), q('Claimable Amount'), q('Notes')].join(','));
-    for (const t of result.tax_deductible_expenses) {
+    for (const t of this.allTaxCategories()) {
       rows.push([q(t.name), q(t.claimable_amount.toFixed(2)), q(t.notes)].join(','));
     }
-    rows.push([q('Total Tax Deductible'), q(result.total_tax_deductible.toFixed(2)), q('')].join(','));
+    rows.push([q('Total Tax Deductible'), q(this.totalTaxDeductible().toFixed(2)), q('')].join(','));
 
     const csv = rows.join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'bank_statement_analysis.csv';
+    a.download = 'expense_analysis.csv';
     a.click();
     URL.revokeObjectURL(url);
   }
 
   reset() {
-    this.selectedFile.set(null);
+    this.selectedFiles.set([]);
     this.result.set(null);
     this.error.set(null);
+    this.customCategories.set([]);
   }
 }

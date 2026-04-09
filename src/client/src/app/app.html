@@ -1,7 +1,7 @@
 <main class="main">
   <header class="header">
     <h1>Ledger AI</h1>
-    <p>Upload your bank statement to analyze spending and income categories</p>
+    <p>Upload your bank statement CSV or PDF files to analyze spending and identify tax deductions</p>
   </header>
 
   @if (!result()) {
@@ -13,25 +13,34 @@
         (dragleave)="onDragLeave($event)"
         (drop)="onDrop($event)"
       >
-        @if (!selectedFile()) {
+        @if (selectedFiles().length === 0) {
           <div class="upload-prompt">
             <svg xmlns="http://www.w3.org/2000/svg" height="48" viewBox="0 -960 960 960" width="48" fill="currentColor">
               <path d="M440-367v-213l-76 76-43-43 149-149 149 149-43 43-76-76v213h-60ZM220-160q-24 0-42-18t-18-42v-143h60v143h520v-143h60v143q0 24-18 42t-42 18H220ZM160-554v-246q0-24 18-42t42-18h280l200 200v106h-60v-76H480v-154H220v230h-60Z"/>
             </svg>
-            <p>Drag and drop your bank statement PDF here</p>
+            <p>Drag and drop CSV or PDF files here</p>
             <span class="or">or</span>
             <label class="file-btn">
               Browse Files
-              <input type="file" accept=".pdf" (change)="onFileSelected($event)" hidden />
+              <input type="file" accept=".csv,.pdf" multiple (change)="onFileSelected($event)" hidden />
             </label>
           </div>
         } @else {
-          <div class="file-selected">
-            <svg xmlns="http://www.w3.org/2000/svg" height="32" viewBox="0 -960 960 960" width="32" fill="currentColor">
-              <path d="M319-250h322v-60H319v60Zm0-170h322v-60H319v60ZM220-80q-24 0-42-18t-18-42v-680q0-24 18-42t42-18h361l219 219v521q0 24-18 42t-42 18H220Zm331-554v-186H220v680h520v-494H551ZM220-820v186-186 680-680Z"/>
-            </svg>
-            <span class="file-name">{{ selectedFile()!.name }}</span>
-            <button class="remove-btn" (click)="reset()">Remove</button>
+          <div class="file-list">
+            @for (file of selectedFiles(); track file.name; let i = $index) {
+              <div class="file-item">
+                <svg xmlns="http://www.w3.org/2000/svg" height="20" viewBox="0 -960 960 960" width="20" fill="currentColor">
+                  <path d="M319-250h322v-60H319v60Zm0-170h322v-60H319v60ZM220-80q-24 0-42-18t-18-42v-680q0-24 18-42t42-18h361l219 219v521q0 24-18 42t-42 18H220Zm331-554v-186H220v680h520v-494H551ZM220-820v186-186 680-680Z"/>
+                </svg>
+                <span class="file-name">{{ file.name }}</span>
+                <span class="file-size">({{ (file.size / 1024).toFixed(0) }} KB)</span>
+                <button class="remove-btn" (click)="removeFile(i)">Remove</button>
+              </div>
+            }
+            <label class="add-more-btn">
+              + Add more files
+              <input type="file" accept=".csv,.pdf" multiple (change)="onFileSelected($event)" hidden />
+            </label>
           </div>
         }
       </div>
@@ -42,14 +51,14 @@
 
       <button
         class="analyze-btn"
-        [disabled]="!selectedFile() || loading()"
+        [disabled]="selectedFiles().length === 0 || loading()"
         (click)="analyze()"
       >
         @if (loading()) {
           <span class="spinner"></span>
           Analyzing...
         } @else {
-          Analyze Statement
+          Analyze {{ selectedFiles().length }} File{{ selectedFiles().length !== 1 ? 's' : '' }}
         }
       </button>
     </div>
@@ -72,7 +81,7 @@
         </div>
         <div class="summary-card tax">
           <span class="summary-label">Tax Deductible</span>
-          <span class="summary-value">{{ result()!.total_tax_deductible | currency }}</span>
+          <span class="summary-value">{{ totalTaxDeductible() | currency }}</span>
         </div>
       </div>
 
@@ -127,9 +136,44 @@
 
       <!-- Tax Deductible Expenses Table -->
       <div class="section">
-        <h2 class="section-title">Tax Deductible Expenses</h2>
-        @if (result()!.tax_deductible_expenses.length === 0) {
-          <p class="empty-state">No tax-deductible expenses identified in this statement.</p>
+        <div class="section-header">
+          <h2 class="section-title">Tax Deductible Expenses</h2>
+          <button class="add-category-btn" (click)="showAddCategory.set(!showAddCategory())">
+            + Add Category
+          </button>
+        </div>
+
+        @if (showAddCategory()) {
+          <div class="add-category-form">
+            <input
+              class="form-input"
+              type="text"
+              placeholder="Category name (e.g. Corp Ins, VA529...)"
+              [(ngModel)]="newCategoryName"
+            />
+            <input
+              class="form-input form-input-amount"
+              type="number"
+              placeholder="Amount ($)"
+              min="0"
+              step="0.01"
+              [(ngModel)]="newCategoryAmount"
+            />
+            <input
+              class="form-input"
+              type="text"
+              placeholder="Notes (optional)"
+              [(ngModel)]="newCategoryNotes"
+            />
+            <div class="form-actions">
+              <button class="form-add-btn" (click)="addCategory()" [disabled]="!newCategoryName.trim() || !newCategoryAmount">Add</button>
+              <button class="form-cancel-btn" (click)="showAddCategory.set(false)">Cancel</button>
+            </div>
+          </div>
+        }
+
+        @if (allTaxCategories().length === 0) {
+          <p class="empty-state">No tax-deductible expenses identified. Use "Add Category" to add entries manually.</p>
         } @else {
           <div class="table-wrap">
             <table class="analysis-table tax-table">
@@ -138,6 +182,7 @@
                   <th class="th-name">Category</th>
                   <th class="th-num">Claimable Amount</th>
                   <th>Notes</th>
+                  <th class="th-action"></th>
                 </tr>
               </thead>
               <tbody>
@@ -146,13 +191,25 @@
                     <td class="td-name">{{ item.name }}</td>
                     <td class="td-num td-income">{{ item.claimable_amount | currency }}</td>
                     <td class="td-notes">{{ item.notes }}</td>
+                    <td class="td-action"></td>
+                  </tr>
+                }
+                @for (item of customCategories(); track item.name; let i = $index) {
+                  <tr class="custom-row">
+                    <td class="td-name">{{ item.name }} <span class="custom-badge">custom</span></td>
+                    <td class="td-num td-income">{{ item.claimable_amount | currency }}</td>
+                    <td class="td-notes">{{ item.notes }}</td>
+                    <td class="td-action">
+                      <button class="remove-cat-btn" (click)="removeCustomCategory(i)" title="Remove">&#x2715;</button>
+                    </td>
                   </tr>
                 }
               </tbody>
               <tfoot>
                 <tr>
                   <td><strong>Total Claimable</strong></td>
-                  <td class="td-num td-income"><strong>{{ result()!.total_tax_deductible | currency }}</strong></td>
+                  <td class="td-num td-income"><strong>{{ totalTaxDeductible() | currency }}</strong></td>
+                  <td></td>
                   <td></td>
                 </tr>
               </tfoot>
