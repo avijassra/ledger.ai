@@ -16,67 +16,58 @@ public class BankStatementController : ControllerBase
     }
 
     [HttpPost("analyze")]
-    public async Task<IActionResult> Analyze(IFormFileCollection files)
+    public async Task Analyze(IFormFileCollection files)
     {
-        _logger.LogInformation("POST /bankstatement/analyze requested");
+        _logger.LogInformation("POST /bankstatement/analyze — {Count} file(s)", files?.Count ?? 0);
 
         if (files == null || files.Count == 0)
         {
-            _logger.LogWarning("No files uploaded in request");
-            return BadRequest("No files uploaded");
+            Response.StatusCode = 400;
+            await Response.WriteAsync("No files uploaded");
+            return;
         }
-
-        _logger.LogInformation("Received {Count} file(s)", files.Count);
 
         var client = _httpClientFactory.CreateClient("AiService");
         var content = new MultipartFormDataContent();
-
         var streams = new List<Stream>();
+
         try
         {
             foreach (var file in files)
             {
-                var isAccepted = file.ContentType == "application/pdf"
-                    || file.ContentType == "text/csv"
-                    || file.ContentType == "application/csv"
-                    || file.ContentType == "text/plain"
-                    || file.ContentType == "application/vnd.ms-excel"
-                    || file.ContentType == "application/octet-stream"
-                    || (file.FileName?.EndsWith(".csv", StringComparison.OrdinalIgnoreCase) ?? false)
-                    || (file.FileName?.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase) ?? false);
-
-                if (!isAccepted)
-                {
-                    _logger.LogWarning("Rejected unsupported file: {FileName}, contentType={ContentType}", file.FileName, file.ContentType);
-                    return BadRequest($"Unsupported file type for '{file.FileName}': {file.ContentType}");
-                }
-
-                _logger.LogInformation("Adding file: {FileName}, size={Size} bytes", file.FileName, file.Length);
                 var stream = file.OpenReadStream();
                 streams.Add(stream);
-                var streamContent = new StreamContent(stream);
-                streamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(file.ContentType);
-                content.Add(streamContent, "files", file.FileName ?? "upload");
+                var sc = new StreamContent(stream);
+                sc.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(file.ContentType ?? "application/octet-stream");
+                content.Add(sc, "files", file.FileName ?? "upload");
             }
 
-            _logger.LogInformation("Forwarding {Count} file(s) to AI service at /bank-statement/analyze", files.Count);
-            var response = await client.PostAsync("/bank-statement/analyze", content);
+            var request = new HttpRequestMessage(HttpMethod.Post, "/bank-statement/analyze") { Content = content };
 
-            if (!response.IsSuccessStatusCode)
+            var aiResponse = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+
+            if (!aiResponse.IsSuccessStatusCode)
             {
-                var error = await response.Content.ReadAsStringAsync();
-                _logger.LogError("AI service error: {StatusCode} - {Error}", response.StatusCode, error);
-                return StatusCode((int)response.StatusCode, error);
+                var error = await aiResponse.Content.ReadAsStringAsync();
+                _logger.LogError("AI service error: {Status} — {Error}", aiResponse.StatusCode, error);
+                Response.StatusCode = (int)aiResponse.StatusCode;
+                await Response.WriteAsync(error);
+                return;
             }
 
-            _logger.LogInformation("AI service returned success");
-            var result = await response.Content.ReadAsStringAsync();
-            return Content(result, "application/json");
+            // Stream SSE events directly to the client
+            Response.ContentType = "text/event-stream";
+            Response.Headers["Cache-Control"] = "no-cache";
+            Response.Headers["X-Accel-Buffering"] = "no";
+            Response.Headers["Connection"] = "keep-alive";
+
+            var aiStream = await aiResponse.Content.ReadAsStreamAsync();
+            await aiStream.CopyToAsync(Response.Body);
+            await Response.Body.FlushAsync();
         }
         finally
         {
-            foreach (var stream in streams)
-                stream.Dispose();
+            foreach (var s in streams) s.Dispose();
             content.Dispose();
         }
     }

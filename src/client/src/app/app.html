@@ -56,11 +56,23 @@
       >
         @if (loading()) {
           <span class="spinner"></span>
-          Analyzing...
+          Processing...
         } @else {
           Analyze {{ selectedFiles().length }} File{{ selectedFiles().length !== 1 ? 's' : '' }}
         }
       </button>
+
+      @if (loading()) {
+        <div class="status-panel">
+          <div class="status-bar-track">
+            <div class="status-bar-fill" [style.width.%]="statusProgress()"></div>
+          </div>
+          <p class="status-message">
+            <span class="status-dot"></span>
+            {{ statusMessage() }}
+          </p>
+        </div>
+      }
     </div>
   } @else {
     <div class="results">

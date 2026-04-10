@@ -1,5 +1,4 @@
 import { Component, computed, signal } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
 import { CurrencyPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 
@@ -36,6 +35,12 @@ interface AnalysisResult {
   total_tax_deductible: number;
 }
 
+type StatusPhase = 'idle' | 'uploading' | 'parsing' | 'preparing' | 'analyzing' | 'processing' | 'complete' | 'error';
+
+const PHASE_STEP: Record<StatusPhase, number> = {
+  idle: 0, uploading: 10, parsing: 25, preparing: 45, analyzing: 60, processing: 90, complete: 100, error: 0,
+};
+
 @Component({
   selector: 'app-root',
   imports: [CurrencyPipe, FormsModule],
@@ -49,7 +54,12 @@ export class App {
   protected readonly error = signal<string | null>(null);
   protected readonly dragging = signal(false);
 
-  // Custom categories added by user
+  // Status tracking
+  protected readonly statusPhase = signal<StatusPhase>('idle');
+  protected readonly statusMessage = signal('');
+  protected readonly statusProgress = computed(() => PHASE_STEP[this.statusPhase()]);
+
+  // Custom categories
   protected readonly customCategories = signal<TaxDeductibleCategory[]>([]);
   protected readonly showAddCategory = signal(false);
   protected newCategoryName = '';
@@ -68,15 +78,13 @@ export class App {
 
   protected readonly allTaxCategories = computed(() => {
     const result = this.result();
-    if (!result) return this.customCategories();
-    return [...result.tax_deductible_expenses, ...this.customCategories()];
+    const base = result ? result.tax_deductible_expenses : [];
+    return [...base, ...this.customCategories()];
   });
 
-  protected readonly totalTaxDeductible = computed(() => {
-    return this.allTaxCategories().reduce((sum, c) => sum + c.claimable_amount, 0);
-  });
-
-  constructor(private http: HttpClient) {}
+  protected readonly totalTaxDeductible = computed(() =>
+    this.allTaxCategories().reduce((sum, c) => sum + c.claimable_amount, 0)
+  );
 
   protected getMonthlyAmount(category: Category, month: string): number {
     return category.monthly_totals.find(m => m.month === month)?.amount ?? 0;
@@ -116,28 +124,22 @@ export class App {
   private addFiles(incoming: File[]) {
     const valid: File[] = [];
     const errors: string[] = [];
-
     for (const file of incoming) {
       const isCsv = file.type === 'text/csv' || file.type === 'application/csv' || file.name.toLowerCase().endsWith('.csv');
       const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
       if (!isCsv && !isPdf) {
-        errors.push(`"${file.name}" is not a CSV or PDF file`);
+        errors.push(`"${file.name}" is not a CSV or PDF`);
       } else {
         valid.push(file);
       }
     }
-
-    if (errors.length) {
-      this.error.set(errors.join('; '));
-    } else {
-      this.error.set(null);
-    }
+    if (errors.length) this.error.set(errors.join('; '));
+    else this.error.set(null);
 
     if (valid.length) {
       const existing = this.selectedFiles();
       const names = new Set(existing.map(f => f.name));
-      const deduped = valid.filter(f => !names.has(f.name));
-      this.selectedFiles.set([...existing, ...deduped]);
+      this.selectedFiles.set([...existing, ...valid.filter(f => !names.has(f.name))]);
       this.result.set(null);
     }
   }
@@ -148,42 +150,73 @@ export class App {
     this.selectedFiles.set(files);
   }
 
-  analyze() {
+  async analyze() {
     const files = this.selectedFiles();
     if (!files.length) return;
 
     const formData = new FormData();
-    for (const file of files) {
-      formData.append('files', file);
-    }
+    for (const file of files) formData.append('files', file);
 
     this.loading.set(true);
     this.error.set(null);
     this.result.set(null);
     this.customCategories.set([]);
+    this.statusPhase.set('uploading');
+    this.statusMessage.set('Uploading files...');
 
-    this.http.post<AnalysisResult>('/BankStatement/analyze', formData).subscribe({
-      next: (data) => {
-        this.result.set(data);
-        this.loading.set(false);
-      },
-      error: (err) => {
-        this.error.set(err.error?.detail || 'Failed to analyze statement. Please try again.');
-        this.loading.set(false);
+    try {
+      const response = await fetch('/BankStatement/analyze', { method: 'POST', body: formData });
+
+      if (!response.ok || !response.body) {
+        throw new Error(`Server error: ${response.status}`);
       }
-    });
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const data = JSON.parse(line.slice(6));
+            const phase = data.status as StatusPhase;
+            this.statusPhase.set(phase);
+            this.statusMessage.set(data.message ?? '');
+
+            if (phase === 'complete') {
+              this.result.set(data.result);
+              this.loading.set(false);
+            } else if (phase === 'error') {
+              this.error.set(data.message ?? 'An error occurred');
+              this.loading.set(false);
+            }
+          } catch { /* ignore parse errors on individual SSE lines */ }
+        }
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to analyze. Please try again.';
+      this.error.set(msg);
+      this.statusPhase.set('error');
+      this.loading.set(false);
+    }
   }
 
   addCategory() {
     const name = this.newCategoryName.trim();
     const amount = this.newCategoryAmount ?? 0;
     if (!name || amount <= 0) return;
-
     this.customCategories.update(cats => [
       ...cats,
       { name, claimable_amount: amount, notes: this.newCategoryNotes.trim() || 'Manually added' }
     ]);
-
     this.newCategoryName = '';
     this.newCategoryAmount = null;
     this.newCategoryNotes = '';
@@ -191,22 +224,16 @@ export class App {
   }
 
   removeCustomCategory(index: number) {
-    this.customCategories.update(cats => {
-      const copy = [...cats];
-      copy.splice(index, 1);
-      return copy;
-    });
+    this.customCategories.update(cats => { const c = [...cats]; c.splice(index, 1); return c; });
   }
 
   exportToCsv(): void {
     const result = this.result();
     if (!result) return;
-
     const months = this.allMonths();
     const rows: string[] = [];
     const q = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
 
-    // Section 1: Summary
     rows.push('SUMMARY');
     rows.push(`Total Income,${result.total_income.toFixed(2)}`);
     rows.push(`Total Expenses,${result.total_expenses.toFixed(2)}`);
@@ -214,20 +241,13 @@ export class App {
     rows.push(`Total Tax Deductible,${this.totalTaxDeductible().toFixed(2)}`);
     rows.push('');
 
-    // Section 2: Monthly category breakdown
     rows.push('MONTHLY CATEGORY BREAKDOWN');
     rows.push([q('Category'), q('Type'), ...months.map(m => q(this.formatMonth(m))), q('Yearly Total')].join(','));
     for (const cat of result.categories) {
-      rows.push([
-        q(cat.name),
-        q(cat.type),
-        ...months.map(m => q(this.getMonthlyAmount(cat, m).toFixed(2))),
-        q(cat.yearly_total.toFixed(2)),
-      ].join(','));
+      rows.push([q(cat.name), q(cat.type), ...months.map(m => q(this.getMonthlyAmount(cat, m).toFixed(2))), q(cat.yearly_total.toFixed(2))].join(','));
     }
     rows.push('');
 
-    // Section 3: All transactions
     rows.push('ALL TRANSACTIONS');
     rows.push([q('Category'), q('Type'), q('Date'), q('Description'), q('Amount')].join(','));
     for (const cat of result.categories) {
@@ -237,7 +257,6 @@ export class App {
     }
     rows.push('');
 
-    // Section 4: Tax deductible expenses (AI + custom)
     rows.push('TAX DEDUCTIBLE EXPENSES');
     rows.push([q('Category'), q('Claimable Amount'), q('Notes')].join(','));
     for (const t of this.allTaxCategories()) {
@@ -245,8 +264,7 @@ export class App {
     }
     rows.push([q('Total Tax Deductible'), q(this.totalTaxDeductible().toFixed(2)), q('')].join(','));
 
-    const csv = rows.join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -260,5 +278,7 @@ export class App {
     this.result.set(null);
     this.error.set(null);
     this.customCategories.set([]);
+    this.statusPhase.set('idle');
+    this.statusMessage.set('');
   }
 }

@@ -15,7 +15,8 @@ class OpenAIProvider(AIProvider):
             )
             try:
                 response = self._client.responses.create(
-                    model="gpt-4o",
+                    model="gpt-4o-mini",
+                    max_output_tokens=16000,
                     input=[
                         {
                             "role": "user",
@@ -30,7 +31,8 @@ class OpenAIProvider(AIProvider):
                 self._client.files.delete(file_obj.id)
         else:
             response = self._client.responses.create(
-                model="gpt-4o",
+                model="gpt-4o-mini",
+                max_output_tokens=16000,
                 input=[{"role": "user", "content": [{"type": "input_text", "text": prompt}]}],
             )
         return response.output_text
